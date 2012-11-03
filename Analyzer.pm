@@ -24,7 +24,11 @@ sub new {
 		warn "Die CORE-Modul-Methoden zu ersetzen, kann gefährlich sein und zu Endlosschleifen führen!\n";
 	}
 	if($subPackage && $subName) {
+		$optionen{subPackage} = $subPackage;
+		$optionen{subName} = $subName;
 		_injectCode($self, $subPackage, $subName);
+	} else {
+		die "Nicht genügend Parameter";
 	}
 
 	if(ref $subRef eq "CODE") {
@@ -124,6 +128,34 @@ sub _injectCode {
 			}
 			print "$delimiter =============== $subPackage\::$subName beendet ===============\n";
 		};
+}
+
+=begin nd
+heal stellt die Original-Sub wieder her.
+=cut
+
+sub heal {
+	my $self = shift;
+	my $subPackage = $optionen{subPackage};
+	my $subName = $optionen{subName};
+
+	no strict 'refs';
+	no warnings 'redefine';
+	*{"$subPackage\::$subName"} = \&{$oldCode{$subPackage}{$subName}};
+}
+
+=begin nd
+reinject installiert wieder den Debug-Code in die Methode.
+=cut
+
+sub reinject {
+	my $self = shift;
+	my $subPackage = $optionen{subPackage};
+	my $subName = $optionen{subName};
+
+	no strict 'refs';
+	no warnings 'redefine';
+	_injectCode($self, $subPackage, $subName);
 }
 
 =begin nd

@@ -3,7 +3,6 @@
 use warnings;
 use strict;
 use lib `pwd`;
-use Data::Dumper;
 use Analyzer;
 use DBI;
 
@@ -21,6 +20,8 @@ my $sr =	0
 		? \&testThis : undef;
 
 my $analyzer = Analyzer->new("DBI", "connect", 0, 1, $sr);
+$analyzer->heal();		# temporär die Originalmethode wiederherstellen
+$analyzer->reinject();		# Wieder die Debugging-Methode einschalten
 
 my $dbh = DBI->connect("DBI:mysql:host=localhost", "root", $passwort);
 
