@@ -11,7 +11,8 @@ my %optionen = ();
 =begin nd
 new erstellt ein neues Analyzer-Objekt. Folgende Parameter können übergeben werden (in dieser Reihenfolge):
 Package (String)
-Name der Sub (String)
+Name der Sub (String) (wenn der Name undef ist, werden automatisch alle Funktionen des Packages genommen. Das
+                       führt aber evtl. zu Fehlern bei heal() und reinject()!)
 Ob Daten angezeigt werden sollen (1 oder 0)
 Ob die Funktion wirklich ausgeführt werden soll (1 oder 0)
 Eine Funktionsreferenz, die für jeden Parameter ausgeführt werden soll (Coderef)
@@ -22,12 +23,23 @@ sub new {
 	$self = bless({}, $self);
 
 	my ($subPackage, $subName, $showData, $reallyExecute, $subRef) = @_;
+	$self->{isMultiple} = 0;
 	if($subPackage eq "CORE") {
 		warn "Die CORE-Modul-Methoden zu ersetzen, kann gefährlich sein und zu Endlosschleifen führen!\n";
 	}
 	if($subPackage && $subName) {
 		($self->{subPackage}, $self->{subName}) = ($subPackage, $subName);
 		_injectCode($self, $subPackage, $subName);
+		$optionen{showData}{$subPackage}{$subName} = (defined($showData) ? $showData : 1);
+		$optionen{reallyExecute}{$subPackage}{$subName} = (defined($reallyExecute) ? !!$reallyExecute : 1);
+
+	} elsif ($subPackage) {
+		foreach my $subName (_getMethodsFromModule($subPackage)) {
+			_injectCode($self, $subPackage, $subName);
+			$optionen{showData}{$subPackage}{$subName} = (defined($showData) ? $showData : 1);
+			$optionen{reallyExecute}{$subPackage}{$subName} = (defined($reallyExecute) ? !!$reallyExecute : 1);
+			$self->{isMultiple} = 1;
+		}
 	} else {
 		die "Nicht genügend Parameter";
 	}
@@ -36,8 +48,6 @@ sub new {
 		$optionen{subRefs}{$subPackage}{$subName} = \&$subRef;
 	}
 
-	$optionen{showData}{$subPackage}{$subName} = (defined($showData) ? $showData : 1);
-	$optionen{reallyExecute}{$subPackage}{$subName} = (defined($reallyExecute) ? !!$reallyExecute : 1);
 
 	return $self;
 }
@@ -58,6 +68,7 @@ sub _injectCode {
 	no strict 'refs';
 	no warnings 'redefine';
 	no warnings 'uninitialized';
+	no warnings 'syntax';
 	$oldCode{$subPackage}{$subName} = \&{$subPackage."::".$subName};
 
 	my $delimiter = "ANALYZER($subPackage\::$subName):   ";
@@ -89,6 +100,7 @@ sub _injectCode {
 					_showData(\@pars);
 				}
 			}
+			my $endedString = "$delimiter =============== $subPackage\::$subName beendet ===============\n\n";
 			if($optionen{reallyExecute}{$subPackage}{$subName}) {
 				{
 					my $thisSize = _getSizeIfPossible(\@pars);
@@ -130,16 +142,16 @@ sub _injectCode {
 				$optionen{anzahlReturnElemente}{$subPackage}{$subName} += scalar @returnValues;
 
 				if(scalar @returnValues == 1) {
-					print "$delimiter =============== $subPackage\::$subName beendet ===============\n";
+					print $endedString;
 					return $returnValues[0];
 				} else {
-					print "$delimiter =============== $subPackage\::$subName beendet ===============\n";
+					print $endedString;
 					return @returnValues;
 				}
 			} else {
 				print "$subPackage\::$subName nicht ausgeführt.\n";
 			}
-			print "$delimiter =============== $subPackage\::$subName beendet ===============\n";
+			print $endedString;
 		};
 }
 
@@ -149,6 +161,9 @@ heal stellt die Original-Sub wieder her.
 
 sub heal {
 	my $self = shift;
+
+
+	die if $self->{isMultiple};
 
 	my $subPackage = $self->{subPackage};
 	my $subName = $self->{subName};
@@ -165,11 +180,11 @@ reinject installiert wieder den Debug-Code in die Methode.
 sub reinject {
 	my $self = shift;
 
+	die if $self->{isMultiple};
+
 	my $subPackage = $self->{subPackage};
 	my $subName = $self->{subName};
 
-	no strict 'refs';
-	no warnings 'redefine';
 	_injectCode($self, $subPackage, $subName);
 }
 
@@ -235,6 +250,7 @@ sub _showData {
 	$| = 1;
 	my $data = shift;
 	my $indent = shift || 1;
+	my $wasHash = shift || 0;
 	if ($indent > 10) {
 		print(("\t" x $indent)."Mögliche Rekursion: Es werden keine tieferen Datenebenen angezeigt!\n");
 		return;
@@ -243,18 +259,19 @@ sub _showData {
 	no warnings;
 	if(ref($data)) {
 		if(ref($data) eq "ARRAY") {
-			print(("\t" x $indent)."Array (".(scalar @{$data})." Elemente) [\n"); 
+			print(("\t" x $indent)."Array (".(scalar @{$data})." Element".(scalar @{$data} == 1 ? '' : 'e').") [\n"); 
 			foreach (sort {$a <=> $b || $a cmp $b } @{$data}) {
 				_showData($_, $indent + 1);
 			}
 			print(("\t" x $indent)."],\n");
 		} elsif (ref($data) eq "HASH") {
-			print(("\t" x $indent)."Hash (\n"); 
+			print(("\t" x $indent)."Hash (".(scalar keys %{$data})." Element".(scalar keys %{$data} == 1 ? '' : 'e').") {\n"); 
 			foreach (sort {$a <=> $b || $a cmp $b } keys %{$data}) {
-				_showData("$_ => $data->{$_}", $indent + 1);
+				_showData("$_", $indent + 1, 1);
+				_showData($data->{$_}, $indent + 2)
 			}
 
-			print(("\t" x $indent)."),\n");
+			print(("\t" x $indent)."},\n");
 		} elsif(ref($data) eq "CODE") {
 			_showData("Code-Referenz()", $indent);
 		} elsif(ref($data) eq "GLOB") {
@@ -265,12 +282,24 @@ sub _showData {
 	} else {
 		$data =~ s/'/\\'/g;
 		if(defined($data)) {
-			print(("\t" x $indent)."'$data',\n");
+			print(("\t" x $indent)."'$data'".($wasHash ? " => " : ',')."\n");
 		} else {
 			print(("\t" x $indent)."undef,\n");
 		}
 	}
 	use warnings;
+}
+
+=begin nd
+_getMethodsFromModule holt sich alle Methoden eines bestimmten Moduls. 
+Parameter:
+Modul/Package (String)
+=cut
+
+sub _getMethodsFromModule {
+	my $module = shift;
+	no strict 'refs';
+	return grep { defined &{"$module\::$_"} } keys %{"$module\::"}
 }
 
 1;
