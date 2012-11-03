@@ -1,4 +1,5 @@
 package Analyzer;
+
 use warnings;
 use strict;
 
@@ -18,14 +19,14 @@ Eine Funktionsreferenz, die für jeden Parameter ausgeführt werden soll (Codere
 
 sub new {
 	my $self = shift;
+	$self = bless({}, $self);
 
 	my ($subPackage, $subName, $showData, $reallyExecute, $subRef) = @_;
 	if($subPackage eq "CORE") {
 		warn "Die CORE-Modul-Methoden zu ersetzen, kann gefährlich sein und zu Endlosschleifen führen!\n";
 	}
 	if($subPackage && $subName) {
-		$optionen{subPackage} = $subPackage;
-		$optionen{subName} = $subName;
+		($self->{subPackage}, $self->{subName}) = ($subPackage, $subName);
 		_injectCode($self, $subPackage, $subName);
 	} else {
 		die "Nicht genügend Parameter";
@@ -38,7 +39,7 @@ sub new {
 	$optionen{showData}{$subPackage}{$subName} = (defined($showData) ? $showData : 1);
 	$optionen{reallyExecute}{$subPackage}{$subName} = (defined($reallyExecute) ? !!$reallyExecute : 1);
 
-	return bless(\%optionen, $self);
+	return $self;
 }
 
 =begin nd
@@ -64,7 +65,10 @@ sub _injectCode {
 	my @returnValues = ();
 
 	*{$subPackage."::".$subName} = sub { 
-			print "$delimiter =============== Aufruf von $subPackage\::$subName gestart ===============\n";
+			$optionen{counter}{$subPackage}{$subName}++;
+			print "$delimiter =============== Aufruf von $subPackage\::$subName gestart (Aufruf #$optionen{counter}{$subPackage}{$subName}) ===============\n";
+			my @caller = caller();
+			print "$delimiter Aufgerufen von $caller[1]\::$caller[0], Zeile $caller[2]\n";
 			my @pars = @_;
 			my $showThisData = $optionen{showData}{$subPackage}{$subName};
 			my $thisSub = $optionen{subRefs}{$subPackage}{$subName};
@@ -92,20 +96,25 @@ sub _injectCode {
 						print qq#$delimiter Die Größe der übergebenen Parameter beträgt $thisSize byte Arbeitsspeicher\n#;
 					}
 				}
-				my $start = gettimeofday();
+				my ($start, $end) = (undef, undef);
 				if(wantarray == 1) {
+					$start = gettimeofday();
 					@returnValues = &{$oldCode{$subPackage}{$subName}}(@pars);
+					$end = gettimeofday();
 				} elsif(wantarray == 0) {
+					$start = gettimeofday();
 					my $tmp_ret = &{$oldCode{$subPackage}{$subName}}(@pars);
+					$end = gettimeofday();
 					push @returnValues, $tmp_ret;
 				} else {
-					&{$oldCode{$subPackage}{$subName}}(@pars)
+					$start = gettimeofday();
+					&{$oldCode{$subPackage}{$subName}}(@pars);
+					$end = gettimeofday();
 				}
-				my $end = gettimeofday();
 
 				if(scalar @returnValues) {
 					if($showThisData) {
-						print "$delimiter Der Aufruf gab folgende Rückgabewerte: \n";
+						print "$delimiter Der Aufruf gab folgende Rückgabewerte zurück: \n";
 						_showData(\@returnValues);
 					}
 					my $thisSize = _getSizeIfPossible(\@returnValues);
@@ -114,7 +123,11 @@ sub _injectCode {
 					}
 				}
 
+				$optionen{laufzeitGesamt}{$subPackage}{$subName} += ($end - $start);
 				print "$delimiter Laufzeit: ".($end - $start)."\n";
+
+
+				$optionen{anzahlReturnElemente}{$subPackage}{$subName} += scalar @returnValues;
 
 				if(scalar @returnValues == 1) {
 					print "$delimiter =============== $subPackage\::$subName beendet ===============\n";
@@ -136,8 +149,9 @@ heal stellt die Original-Sub wieder her.
 
 sub heal {
 	my $self = shift;
-	my $subPackage = $optionen{subPackage};
-	my $subName = $optionen{subName};
+
+	my $subPackage = $self->{subPackage};
+	my $subName = $self->{subName};
 
 	no strict 'refs';
 	no warnings 'redefine';
@@ -150,12 +164,51 @@ reinject installiert wieder den Debug-Code in die Methode.
 
 sub reinject {
 	my $self = shift;
-	my $subPackage = $optionen{subPackage};
-	my $subName = $optionen{subName};
+
+	my $subPackage = $self->{subPackage};
+	my $subName = $self->{subName};
 
 	no strict 'refs';
 	no warnings 'redefine';
 	_injectCode($self, $subPackage, $subName);
+}
+
+=begin nd
+getAvgTime gibt die durchschnittliche Laufzeit einer Methode heraus.
+=cut
+
+sub getAvgTime {
+	my $self = shift;
+
+	my $subPackage = $self->{subPackage};
+	my $subName = $self->{subName};
+
+	my $anzahl = $optionen{counter}{$subPackage}{$subName};
+
+	return 0 unless $anzahl;
+	
+	my $laufzeiten = $optionen{laufzeitGesamt}{$subPackage}{$subName};
+
+	return ($laufzeiten / $anzahl);
+}
+
+=begin nd
+getAvgElements liefert die durchschnittliche Anzahl an zurückgegebenen Elementen zurück.
+=cut
+
+sub getAvgElements {
+	my $self = shift;
+
+	my $subPackage = $self->{subPackage};
+	my $subName = $self->{subName};
+
+	my $anzahl = $optionen{counter}{$subPackage}{$subName};
+
+	return 0 unless $anzahl;
+	
+	my $laufzeiten = $optionen{anzahlReturnElemente}{$subPackage}{$subName};
+
+	return ($laufzeiten / $anzahl);
 }
 
 =begin nd
@@ -186,15 +239,15 @@ sub _showData {
 		print(("\t" x $indent)."Mögliche Rekursion: Es werden keine tieferen Datenebenen angezeigt!\n");
 		return;
 	}
-	
+
 	no warnings;
 	if(ref($data)) {
 		if(ref($data) eq "ARRAY") {
-			print(("\t" x $indent)."Array (\n"); 
+			print(("\t" x $indent)."Array (".(scalar @{$data})." Elemente) [\n"); 
 			foreach (sort {$a <=> $b || $a cmp $b } @{$data}) {
 				_showData($_, $indent + 1);
 			}
-			print(("\t" x $indent)."),\n");
+			print(("\t" x $indent)."],\n");
 		} elsif (ref($data) eq "HASH") {
 			print(("\t" x $indent)."Hash (\n"); 
 			foreach (sort {$a <=> $b || $a cmp $b } keys %{$data}) {
@@ -211,7 +264,11 @@ sub _showData {
 		}
 	} else {
 		$data =~ s/'/\\'/g;
-		print(("\t" x $indent)."'$data',\n");
+		if(defined($data)) {
+			print(("\t" x $indent)."'$data',\n");
+		} else {
+			print(("\t" x $indent)."undef,\n");
+		}
 	}
 	use warnings;
 }
