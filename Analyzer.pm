@@ -69,90 +69,94 @@ sub _injectCode {
 	no warnings 'redefine';
 	no warnings 'uninitialized';
 	no warnings 'syntax';
-	$oldCode{$subPackage}{$subName} = \&{$subPackage."::".$subName};
 
 	my $delimiter = "ANALYZER($subPackage\::$subName):   ";
 
 	my @returnValues = ();
 
-	*{$subPackage."::".$subName} = sub { 
-			$optionen{counter}{$subPackage}{$subName}++;
-			print "$delimiter =============== Aufruf von $subPackage\::$subName gestart (Aufruf #$optionen{counter}{$subPackage}{$subName}) ===============\n";
-			my @caller = caller();
-			print "$delimiter Aufgerufen von $caller[1]\::$caller[0], Zeile $caller[2]\n";
-			my @pars = @_;
-			my $showThisData = $optionen{showData}{$subPackage}{$subName};
-			my $thisSub = $optionen{subRefs}{$subPackage}{$subName};
-			if($showThisData) {
-				if($thisSub) {
-					print "$delimiter Parameter von $subPackage\::$subName VOR dem Durchlaufen der eingestellten Funktion\n";
-				} else {
-					print "$delimiter Parameter von $subPackage\::$subName\n";
-				}
-				_showData(\@pars);
-			}
-			if($optionen{subRefs}{$subPackage}{$subName}) {
-				foreach my $counter (0 .. $#pars) {
-					$pars[$counter] = &{$thisSub}($pars[$counter]);
-				}
+	if(_subExists("$subPackage\::$subName")) {
+		$oldCode{$subPackage}{$subName} = \&{$subPackage."::".$subName};
+		*{$subPackage."::".$subName} = sub { 
+				$optionen{counter}{$subPackage}{$subName}++;
+				print "$delimiter =============== Aufruf von $subPackage\::$subName gestart (Aufruf #$optionen{counter}{$subPackage}{$subName}) ===============\n";
+				my @caller = caller();
+				print "$delimiter Aufgerufen von $caller[1]\::$caller[0], Zeile $caller[2]\n";
+				my @pars = @_;
+				my $showThisData = $optionen{showData}{$subPackage}{$subName};
+				my $thisSub = $optionen{subRefs}{$subPackage}{$subName};
 				if($showThisData) {
-					print "$delimiter Parameter von $subPackage\::$subName NACH dem Durchlaufen der eingestellten Funktion\n";
+					if($thisSub) {
+						print "$delimiter Parameter von $subPackage\::$subName VOR dem Durchlaufen der eingestellten Funktion\n";
+					} else {
+						print "$delimiter Parameter von $subPackage\::$subName\n";
+					}
 					_showData(\@pars);
 				}
-			}
-			my $endedString = "$delimiter =============== $subPackage\::$subName beendet ===============\n\n";
-			if($optionen{reallyExecute}{$subPackage}{$subName}) {
-				{
-					my $thisSize = _getSizeIfPossible(\@pars);
-					if ($thisSize != -1) {
-						print qq#$delimiter Die Größe der übergebenen Parameter beträgt $thisSize byte Arbeitsspeicher\n#;
+				if($optionen{subRefs}{$subPackage}{$subName}) {
+					foreach my $counter (0 .. $#pars) {
+						$pars[$counter] = &{$thisSub}($pars[$counter]);
 					}
-				}
-				my ($start, $end) = (undef, undef);
-				if(wantarray == 1) {
-					$start = gettimeofday();
-					@returnValues = &{$oldCode{$subPackage}{$subName}}(@pars);
-					$end = gettimeofday();
-				} elsif(wantarray == 0) {
-					$start = gettimeofday();
-					my $tmp_ret = &{$oldCode{$subPackage}{$subName}}(@pars);
-					$end = gettimeofday();
-					push @returnValues, $tmp_ret;
-				} else {
-					$start = gettimeofday();
-					&{$oldCode{$subPackage}{$subName}}(@pars);
-					$end = gettimeofday();
-				}
-
-				if(scalar @returnValues) {
 					if($showThisData) {
-						print "$delimiter Der Aufruf gab folgende Rückgabewerte zurück: \n";
-						_showData(\@returnValues);
-					}
-					my $thisSize = _getSizeIfPossible(\@returnValues);
-					if($thisSize != -1) {
-						print "$delimiter Die Rückgabewerte belegen $thisSize byte Arbeitsspeicher\n";
+						print "$delimiter Parameter von $subPackage\::$subName NACH dem Durchlaufen der eingestellten Funktion\n";
+						_showData(\@pars);
 					}
 				}
+				my $endedString = "$delimiter =============== $subPackage\::$subName beendet ===============\n\n";
+				if($optionen{reallyExecute}{$subPackage}{$subName}) {
+					{
+						my $thisSize = _getSizeIfPossible(\@pars);
+						if ($thisSize != -1) {
+							print qq#$delimiter Die Größe der übergebenen Parameter beträgt $thisSize byte Arbeitsspeicher\n#;
+						}
+					}
+					my ($start, $end) = (undef, undef);
+					if(wantarray == 1) {
+						$start = gettimeofday();
+						@returnValues = &{$oldCode{$subPackage}{$subName}}(@pars);
+						$end = gettimeofday();
+					} elsif(wantarray == 0) {
+						$start = gettimeofday();
+						my $tmp_ret = &{$oldCode{$subPackage}{$subName}}(@pars);
+						$end = gettimeofday();
+						push @returnValues, $tmp_ret;
+					} else {
+						$start = gettimeofday();
+						&{$oldCode{$subPackage}{$subName}}(@pars);
+						$end = gettimeofday();
+					}
 
-				$optionen{laufzeitGesamt}{$subPackage}{$subName} += ($end - $start);
-				print "$delimiter Laufzeit: ".($end - $start)."\n";
+					if(scalar @returnValues) {
+						if($showThisData) {
+							print "$delimiter Der Aufruf gab folgende Rückgabewerte zurück: \n";
+							_showData(\@returnValues);
+						}
+						my $thisSize = _getSizeIfPossible(\@returnValues);
+						if($thisSize != -1) {
+							print "$delimiter Die Rückgabewerte belegen $thisSize byte Arbeitsspeicher\n";
+						}
+					}
+
+					$optionen{laufzeitGesamt}{$subPackage}{$subName} += ($end - $start);
+					print "$delimiter Laufzeit: ".($end - $start)."\n";
 
 
-				$optionen{anzahlReturnElemente}{$subPackage}{$subName} += scalar @returnValues;
+					$optionen{anzahlReturnElemente}{$subPackage}{$subName} += scalar @returnValues;
 
-				if(scalar @returnValues == 1) {
-					print $endedString;
-					return $returnValues[0];
+					if(scalar @returnValues == 1) {
+						print $endedString;
+						return $returnValues[0];
+					} else {
+						print $endedString;
+						return @returnValues;
+					}
 				} else {
-					print $endedString;
-					return @returnValues;
+					print "$subPackage\::$subName nicht ausgeführt.\n";
 				}
-			} else {
-				print "$subPackage\::$subName nicht ausgeführt.\n";
-			}
-			print $endedString;
-		};
+				print $endedString;
+			};
+	} else {
+		die "Sub $subPackage\::$subName nicht gefunden.\n";
+	}
 }
 
 =begin nd
@@ -162,8 +166,7 @@ heal stellt die Original-Sub wieder her.
 sub heal {
 	my $self = shift;
 
-
-	die if $self->{isMultiple};
+	die "heal funktioniert nicht, ohne, dass im Konstruktur eine spezifische Funktion angegeben ist." if $self->{isMultiple};
 
 	my $subPackage = $self->{subPackage};
 	my $subName = $self->{subName};
@@ -180,7 +183,7 @@ reinject installiert wieder den Debug-Code in die Methode.
 sub reinject {
 	my $self = shift;
 
-	die if $self->{isMultiple};
+	die "reinject funktioniert nicht, ohne, dass im Konstruktur eine spezifische Funktion angegeben ist." if $self->{isMultiple};
 
 	my $subPackage = $self->{subPackage};
 	my $subName = $self->{subName};
@@ -300,6 +303,20 @@ sub _getMethodsFromModule {
 	my $module = shift;
 	no strict 'refs';
 	return grep { defined &{"$module\::$_"} } keys %{"$module\::"}
+}
+
+=begin nd
+_subExists überprüft, ob eine Sub existiert. 
+Parameter: 
+Subname (String, "Package::Sub")
+Liefert 1 oder 0 zurück.
+=cut
+
+sub _subExists {
+	my $fullSubName = shift;
+	no strict 'refs';
+	return 1 if defined &{$fullSubName};
+	return 0;
 }
 
 1;

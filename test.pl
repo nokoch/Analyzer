@@ -15,9 +15,11 @@ my $passwort = `cat passwort.txt`;
 chomp($passwort);
 
 sub testThis { 
+	warn Dumper @_;
 	return $_[0] if $_[0] eq "DBI";
 	return "test-db";
 }
+
 my $sr = 0 ? \&testThis : undef;	# erstellt eine Funktionsreferenz (wenn vorne 1 steht),
 					# die auf jedes Element der Parameter angewendet wird.
 					# Achtung: Auch $self (bei objektorientierten Methoden)
